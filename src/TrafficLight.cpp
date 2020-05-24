@@ -2,6 +2,10 @@
 #include <random>
 #include "TrafficLight.h"
 
+#include <thread>
+#include <chrono>
+#include <future>
+
 /* Implementation of class "MessageQueue" */
 
 /* 
@@ -12,14 +16,15 @@ T MessageQueue<T>::receive()
     // to wait for and receive new messages and pull them from the queue using move semantics. 
     // The received object should then be returned by the receive function. 
 }
+*/
 
 template <typename T>
 void MessageQueue<T>::send(T &&msg)
 {
-    // FP.4a : The method send should use the mechanisms std::lock_guard<std::mutex> 
-    // as well as _condition.notify_one() to add a new message to the queue and afterwards send a notification.
+    std::lock_guard<std::mutex> lock(_mtx);
+    _queue.emplace_back(msg);
+    _conditionVar.notify_one();
 }
-*/
 
 /* Implementation of class "TrafficLight" */
 
@@ -35,6 +40,7 @@ void TrafficLight::waitForGreen()
     // runs and repeatedly calls the receive function on the message queue. 
     // Once it receives TrafficLightPhase::green, the method returns.
 }
+*/
 
 TrafficLightPhase TrafficLight::getCurrentPhase()
 {
@@ -43,16 +49,38 @@ TrafficLightPhase TrafficLight::getCurrentPhase()
 
 void TrafficLight::simulate()
 {
-    // FP.2b : Finally, the private method „cycleThroughPhases“ should be started in a thread when the public method „simulate“ is called. To do this, use the thread queue in the base class. 
+    threads.emplace_back(std::thread(&TrafficLight::cycleThroughPhases, this));
 }
 
 // virtual function which is executed in a thread
 void TrafficLight::cycleThroughPhases()
 {
-    // FP.2a : Implement the function with an infinite loop that measures the time between two loop cycles 
-    // and toggles the current phase of the traffic light between red and green and sends an update method 
-    // to the message queue using move semantics. The cycle duration should be a random value between 4 and 6 seconds. 
-    // Also, the while-loop should use std::this_thread::sleep_for to wait 1ms between two cycles. 
-}
+    // random value generation between 4 and 6 seconds
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(4000, 6000);
 
-*/
+    int cycleTime = dist(gen); // simulating random cycle duration
+
+    auto lastUpdate = std::chrono::system_clock::now();
+
+    while (true)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        auto secs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - lastUpdate);
+        int secondsSinceSwitched = secs.count();
+        
+        if(secondsSinceSwitched >= cycleTime){
+            _currentPhase = _currentPhase == red ? green : red;
+
+            auto future = std::async(std::launch::async, &MessageQueue<TrafficLightPhase>::send, &_queue, std::move(_currentPhase));
+            future.wait();
+
+            lastUpdate = std::chrono::system_clock::now();
+            cycleTime = dist(gen);
+        }
+        
+    }
+     
+}
